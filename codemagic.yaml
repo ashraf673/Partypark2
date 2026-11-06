@@ -1,0 +1,15 @@
+workflows:
+  android-workflow:
+    name: Partypark Android
+    max_build_duration: 60
+    environment:
+      java: 17
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
+      - name: Build Debug APK
+        script: |
+          gradle assembleDebug
+    artifacts:
+      - app/build/outputs/**/*.apk
