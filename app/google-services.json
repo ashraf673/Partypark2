@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "698409253921",
+    "firebase_url": "https://watchnow-a43d8-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "watchnow-a43d8",
+    "storage_bucket": "watchnow-a43d8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:698409253921:android:27da4ea6d3b59dd93af760",
+        "android_client_info": {
+          "package_name": "com.partypark.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "698409253921-88373pvconmfu480s5b1qjshe73q429h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.partypark.app",
+            "certificate_hash": "c4d507dd7fef118ca87203a762ca1b963255dbbb"
+          }
+        },
+        {
+          "client_id": "698409253921-ep93rtoj1l3fr0qfgmr89aaatmg6418s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAotI6r4SHXzs50x_GVZscOhKNpBsoMhA0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "698409253921-ep93rtoj1l3fr0qfgmr89aaatmg6418s.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
