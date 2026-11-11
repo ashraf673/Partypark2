@@ -132,9 +132,9 @@ class MediaManager(private val context: Context) {
     }
 
     private fun createThumbnail(uri: android.net.Uri): ByteArray? {
-        var bitmap: Bitmap? = null
+        var current: Bitmap? = null
         try {
-            bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            current = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 context.contentResolver.loadThumbnail(uri, Size(200, 200), null)
             } else {
                 context.contentResolver.openInputStream(uri)?.use { input ->
@@ -146,35 +146,35 @@ class MediaManager(private val context: Context) {
                 }
             } ?: return null
 
-            var current = bitmap
             var quality = 75
-            var bytes: ByteArray
-            do {
+            while (true) {
+                val activeBitmap = current ?: return null
                 val output = ByteArrayOutputStream()
-                current.compress(Bitmap.CompressFormat.JPEG, quality, output)
-                bytes = output.toByteArray()
+                activeBitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
+                val bytes = output.toByteArray()
                 if (bytes.size <= maxThumbnailBytes) return bytes
+
                 if (quality > 45) {
                     quality -= 10
-                } else if (current.width > 64 || current.height > 64) {
+                } else if (activeBitmap.width > 64 || activeBitmap.height > 64) {
                     val smaller = Bitmap.createScaledBitmap(
-                        current,
-                        (current.width * 0.75f).toInt().coerceAtLeast(1),
-                        (current.height * 0.75f).toInt().coerceAtLeast(1),
+                        activeBitmap,
+                        (activeBitmap.width * 0.75f).toInt().coerceAtLeast(1),
+                        (activeBitmap.height * 0.75f).toInt().coerceAtLeast(1),
                         true
                     )
-                    if (smaller !== current) current.recycle()
+                    if (smaller !== activeBitmap) activeBitmap.recycle()
                     current = smaller
                     quality = 65
                 } else {
                     return null
                 }
-            } while (true)
+            }
         } catch (error: Exception) {
             Log.e("MediaManager", "Thumbnail creation failed", error)
             return null
         } finally {
-            bitmap?.let { if (!it.isRecycled) it.recycle() }
+            current?.let { if (!it.isRecycled) it.recycle() }
         }
     }
 
