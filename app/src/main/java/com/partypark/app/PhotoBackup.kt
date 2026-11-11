@@ -9,7 +9,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.Uri
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.provider.MediaStore
 import android.util.Log
 import androidx.work.Constraints
@@ -37,7 +37,7 @@ private const val PHOTO_RETENTION_MS = 20L * 24 * 60 * 60 * 1000
  * Consent-gated observer. It starts from the explicit opt-in timestamp, so
  * enabling the feature never imports the phone's existing gallery.
  */
-class PhotoBackupObserver(context: Context) : ContentObserver(Handler(Looper.getMainLooper())) {
+class PhotoBackupObserver(context: Context) : ContentObserver(Handler(HandlerThread("PartyparkPhotoObserver").apply { start() }.looper)) {
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
     private val store = PhotoBackupStore(appContext)
