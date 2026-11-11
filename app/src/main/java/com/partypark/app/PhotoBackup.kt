@@ -192,68 +192,63 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
         val ownerUid = prefs.getString("ownerUid", null) ?: return Result.failure()
         val deviceId = prefs.getString("deviceId", null) ?: return Result.failure()
         val store = PhotoBackupStore(applicationContext)
-        val now = System.currentTimeMillis()
         val photo = store.all().firstOrNull() ?: return Result.success()
-        var hadFailure = false
+        val file = File(photo.path)
 
-        run {
-            val file = File(photo.path)
-            if (now - photo.capturedAt >= PHOTO_RETENTION_MS) {
-                file.delete()
-                store.remove(photo.id)
-                continue
-            }
-            if (!file.exists()) {
-                store.remove(photo.id)
-                continue
-            }
-            try {
-                val key = "img_${photo.capturedAt}_${photo.id}"
-                val storagePath = "media/$deviceId/originals/$key"
-                val ref = Firebase.storage.reference.child(storagePath)
-                val uploadLatch = CountDownLatch(1)
-                var uploadError: Exception? = null
-                var downloadUrl = ""
-                ref.putFile(Uri.fromFile(file))
-                    .continueWithTask { task ->
-                        if (!task.isSuccessful) throw task.exception ?: IllegalStateException("Upload failed")
-                        ref.downloadUrl
-                    }
-                    .addOnSuccessListener { uri -> downloadUrl = uri.toString(); uploadLatch.countDown() }
-                    .addOnFailureListener { error -> uploadError = error; uploadLatch.countDown() }
-                if (!uploadLatch.await(10, TimeUnit.MINUTES) || uploadError != null) {
-                    hadFailure = true
-                    Log.e("PhotoBackup", "Upload failed: ${photo.name}", uploadError)
-                    continue
-                }
-
-                val record = mapOf(
-                    "id" to key, "name" to photo.name, "type" to "image",
-                    "size" to photo.size, "date" to photo.capturedAt,
-                    "uploadedAt" to System.currentTimeMillis(),
-                    "storagePath" to storagePath, "downloadURL" to downloadUrl
-                )
-                val dbLatch = CountDownLatch(1)
-                var dbOk = false
-                Firebase.database.reference.child("users").child(ownerUid)
-                    .child("devices").child(deviceId).child("media").child(key)
-                    .setValue(record)
-                    .addOnCompleteListener { task -> dbOk = task.isSuccessful; dbLatch.countDown() }
-                if (!dbLatch.await(60, TimeUnit.SECONDS) || !dbOk) {
-                    hadFailure = true
-                    Log.e("PhotoBackup", "Metadata write failed; local copy retained for retry: ${photo.name}")
-                    continue
-                }
-                file.delete()
-                store.remove(photo.id)
-            } catch (error: Exception) {
-                hadFailure = true
-                Log.e("PhotoBackup", "Queue item failed: ${photo.name}", error)
-            }
+        // The local 20-day expiry is based on capture time, not upload time.
+        if (System.currentTimeMillis() - photo.capturedAt >= PHOTO_RETENTION_MS || !file.exists()) {
+            file.delete()
+            store.remove(photo.id)
+            if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
+            return Result.success()
         }
-        if (hadFailure) return Result.retry()
-        if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
-        return Result.success()
+
+        return try {
+            val key = "img_${photo.capturedAt}_${photo.id}"
+            val storagePath = "media/$deviceId/originals/$key"
+            val ref = Firebase.storage.reference.child(storagePath)
+            val uploadLatch = CountDownLatch(1)
+            var uploadError: Exception? = null
+            var downloadUrl = ""
+            ref.putFile(Uri.fromFile(file))
+                .continueWithTask { task ->
+                    if (!task.isSuccessful) throw task.exception ?: IllegalStateException("Upload failed")
+                    ref.downloadUrl
+                }
+                .addOnSuccessListener { uri -> downloadUrl = uri.toString(); uploadLatch.countDown() }
+                .addOnFailureListener { error -> uploadError = error; uploadLatch.countDown() }
+
+            if (!uploadLatch.await(10, TimeUnit.MINUTES) || uploadError != null) {
+                Log.e("PhotoBackup", "Upload failed: ${photo.name}", uploadError)
+                return Result.retry()
+            }
+
+            val record = mapOf(
+                "id" to key, "name" to photo.name, "type" to "image",
+                "size" to photo.size, "date" to photo.capturedAt,
+                "uploadedAt" to System.currentTimeMillis(),
+                "storagePath" to storagePath, "downloadURL" to downloadUrl
+            )
+            val dbLatch = CountDownLatch(1)
+            var dbOk = false
+            Firebase.database.reference.child("users").child(ownerUid)
+                .child("devices").child(deviceId).child("media").child(key)
+                .setValue(record)
+                .addOnCompleteListener { task -> dbOk = task.isSuccessful; dbLatch.countDown() }
+            if (!dbLatch.await(60, TimeUnit.SECONDS) || !dbOk) {
+                Log.e("PhotoBackup", "Metadata write failed; local copy retained: ${photo.name}")
+                return Result.retry()
+            }
+
+            // Do not remove the local original until Storage AND RTDB both commit.
+            file.delete()
+            store.remove(photo.id)
+            if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
+            Result.success()
+        } catch (error: Exception) {
+            Log.e("PhotoBackup", "Queue item failed: ${photo.name}", error)
+            Result.retry()
+        }
     }
 }
 
