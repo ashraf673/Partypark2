@@ -28,7 +28,25 @@ class MainActivity : AppCompatActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { }
+    ) { results ->
+        val mediaGranted = if (Build.VERSION.SDK_INT >= 34) {
+            results[Manifest.permission.READ_MEDIA_IMAGES] == true ||
+                results[Manifest.permission.READ_MEDIA_VIDEO] == true ||
+                results[Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED] == true ||
+                hasMediaPermission()
+        } else if (Build.VERSION.SDK_INT >= 33) {
+            results[Manifest.permission.READ_MEDIA_IMAGES] == true ||
+                results[Manifest.permission.READ_MEDIA_VIDEO] == true || hasMediaPermission()
+        } else {
+            results[Manifest.permission.READ_EXTERNAL_STORAGE] == true || hasMediaPermission()
+        }
+        if (mediaGranted) {
+            Toast.makeText(this, "Photo and video access granted", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Media access denied. Photo scanning will not work.", Toast.LENGTH_LONG).show()
+        }
+        startServiceIfActivated()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,10 +59,26 @@ class MainActivity : AppCompatActivity() {
 
         if (isActivated && savedName != null) {
             showHomeScreen(savedName)
-            startBackgroundService()
+            requestBasicPermissions()
         } else {
             showSetupScreen()
         }
+    }
+
+    private fun startServiceIfActivated() {
+        if (prefs.getBoolean("activated", false)) startBackgroundService()
+    }
+
+    private fun hasMediaPermission(): Boolean {
+        val permissions = if (Build.VERSION.SDK_INT >= 34) {
+            listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        } else if (Build.VERSION.SDK_INT >= 33) {
+            listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+        } else {
+            listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        return permissions.any { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
     private fun startBackgroundService() {
@@ -105,7 +139,7 @@ class MainActivity : AppCompatActivity() {
                 registerDevice(ownerUid, name)
                 Toast.makeText(this, "Setup complete", Toast.LENGTH_SHORT).show()
                 showHomeScreen(name)
-                startBackgroundService()
+                requestBasicPermissions()
             } else {
                 Toast.makeText(this, "Activate the app first", Toast.LENGTH_SHORT).show()
             }
@@ -185,7 +219,11 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.ACCESS_FINE_LOCATION
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+            permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
+            permissions.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
             permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
         } else {
@@ -198,6 +236,8 @@ class MainActivity : AppCompatActivity() {
 
         if (toRequest.isNotEmpty()) {
             permissionLauncher.launch(toRequest.toTypedArray())
+        } else {
+            startServiceIfActivated()
         }
     }
 }

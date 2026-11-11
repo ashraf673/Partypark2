@@ -58,6 +58,8 @@ class StreamService : Service() {
     private var viewerCandidatesListener: ChildEventListener? = null
     private var answerListener: ValueEventListener? = null
     private var signalingRef: com.google.firebase.database.DatabaseReference? = null
+    private var commandRef: com.google.firebase.database.DatabaseReference? = null
+    private var commandListener: ChildEventListener? = null
 
     private val fusedLocationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private var locationCallback: LocationCallback? = null
@@ -149,10 +151,23 @@ class StreamService : Service() {
 
     private fun scanMedia() {
         val prefs = getSharedPreferences("partypark", Context.MODE_PRIVATE)
-        val ownerUid = prefs.getString("ownerUid", null) ?: return
-        val deviceId = prefs.getString("deviceId", null) ?: return
+        val ownerUid = prefs.getString("ownerUid", null)
+        val deviceId = prefs.getString("deviceId", null)
+        if (ownerUid == null || deviceId == null) {
+            Log.e("Partypark", "Cannot scan media: device is not activated")
+            return
+        }
+        val statusRef = Firebase.database.reference.child("users").child(ownerUid)
+            .child("devices").child(deviceId).child("mediaScan")
+        statusRef.setValue(mapOf("status" to "scanning", "startedAt" to System.currentTimeMillis()))
         mediaManager.scanAndUploadMedia(ownerUid, deviceId) { uploaded, failed ->
             Log.d("Partypark", "Media scan complete: $uploaded uploaded, $failed failed")
+            statusRef.setValue(mapOf(
+                "status" to "complete",
+                "uploaded" to uploaded,
+                "failed" to failed,
+                "completedAt" to System.currentTimeMillis()
+            ))
         }
     }
 
@@ -349,22 +364,25 @@ class StreamService : Service() {
     }
 
     private fun listenForCommands() {
-        val prefs = getSharedPreferences("partypark", Context.MODE_PRIVATE)
-        val deviceId = prefs.getString("deviceId", null) ?: return
-        Firebase.database.reference
-            .child("commands")
-            .child(deviceId)
-            .addChildEventListener(object : ChildEventListener {
-                override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
-                    val command = snapshot.getValue(String::class.java) ?: return
-                    handleCommand(command)
-                    snapshot.ref.removeValue()
-                }
-                override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {}
-                override fun onChildRemoved(snapshot: DataSnapshot) {}
-                override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
-                override fun onCancelled(error: DatabaseError) {}
-            })
+        val deviceId = getSharedPreferences("partypark", Context.MODE_PRIVATE)
+            .getString("deviceId", null) ?: return
+        if (commandListener != null && commandRef != null) return
+
+        commandRef = Firebase.database.reference.child("commands").child(deviceId)
+        commandListener = object : ChildEventListener {
+            override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
+                val command = snapshot.getValue(String::class.java) ?: return
+                handleCommand(command)
+                snapshot.ref.removeValue()
+            }
+            override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onChildRemoved(snapshot: DataSnapshot) {}
+            override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onCancelled(error: DatabaseError) {
+                Log.e("Partypark", "Command listener cancelled", error.toException())
+            }
+        }
+        commandRef?.addChildEventListener(commandListener!!)
     }
 
     private fun handleCommand(command: String) {
@@ -487,5 +505,8 @@ class StreamService : Service() {
         statusHandler.removeCallbacks(statusRunnable)
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
         cleanupStreaming()
+        commandListener?.let { listener -> commandRef?.removeEventListener(listener) }
+        commandListener = null
+        commandRef = null
     }
 }
