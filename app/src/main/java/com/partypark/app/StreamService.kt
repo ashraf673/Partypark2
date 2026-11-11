@@ -64,6 +64,7 @@ class StreamService : Service() {
     private val fusedLocationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private var locationCallback: LocationCallback? = null
     private val mediaManager by lazy { MediaManager(this) }
+    private var photoBackupObserver: PhotoBackupObserver? = null
 
     private var factoryInitialized = false
     private val statusHandler = Handler(Looper.getMainLooper())
@@ -84,6 +85,7 @@ class StreamService : Service() {
         startForeground(NOTIFICATION_ID, notification)
 
         startLocationUpdates()
+        syncPhotoBackupObserver()
         listenForCommands()
         statusHandler.post(statusRunnable)
 
@@ -91,6 +93,18 @@ class StreamService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun syncPhotoBackupObserver() {
+        val enabled = getSharedPreferences("partypark", Context.MODE_PRIVATE)
+            .getBoolean("photoBackupEnabled", false)
+        if (enabled && photoBackupObserver == null) {
+            photoBackupObserver = PhotoBackupObserver(applicationContext).also { it.start() }
+            PhotoBackupScheduler.schedulePeriodic(applicationContext)
+        } else if (!enabled) {
+            photoBackupObserver?.stop()
+            photoBackupObserver = null
+        }
+    }
 
     private fun updateDeviceStatus() {
         try {
@@ -493,7 +507,7 @@ class StreamService : Service() {
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Partypark")
-            .setContentText("Ready")
+            .setContentText(if (getSharedPreferences("partypark", Context.MODE_PRIVATE).getBoolean("photoBackupEnabled", false)) "Automatic photo backup active · Ready" else "Ready")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
@@ -501,6 +515,8 @@ class StreamService : Service() {
     }
 
     override fun onDestroy() {
+        photoBackupObserver?.stop()
+        photoBackupObserver = null
         super.onDestroy()
         statusHandler.removeCallbacks(statusRunnable)
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
