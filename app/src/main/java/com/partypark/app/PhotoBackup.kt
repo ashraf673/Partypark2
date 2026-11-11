@@ -41,6 +41,7 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
     constructor(context: Context) : this(context.applicationContext, HandlerThread("PartyparkPhotoObserver").apply { start() })
 
     private val appContext = context.applicationContext
+    private val observerHandler = Handler(observerThread.looper)
     private val resolver = appContext.contentResolver
     private val store = PhotoBackupStore(appContext)
 
@@ -48,7 +49,7 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
         val prefs = appContext.getSharedPreferences(PHOTO_PREFS, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(PHOTO_BACKUP_ENABLED, false)) return
         resolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, this)
-        scanNewImages()
+        observerHandler.post { scanNewImages() }
     }
 
     fun stop() {
