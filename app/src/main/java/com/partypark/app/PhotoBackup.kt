@@ -171,6 +171,14 @@ object PhotoBackupScheduler {
             "partypark-photo-upload-periodic", androidx.work.ExistingPeriodicWorkPolicy.KEEP, request
         )
     }
+
+    // Runs even without internet so the 20-day local retention rule is enforced offline.
+    fun scheduleMaintenance(context: Context) {
+        val request = PeriodicWorkRequestBuilder<PhotoBackupMaintenanceWorker>(24, TimeUnit.HOURS).build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "partypark-photo-local-retention", androidx.work.ExistingPeriodicWorkPolicy.KEEP, request
+        )
+    }
 }
 
 /** Uploads original files, commits metadata, and only then removes the local copy. */
@@ -240,5 +248,18 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
             }
         }
         return if (hadFailure) Result.retry() else Result.success()
+    }
+}
+
+/** Local-only cleanup; deliberately has no network constraint. */
+class PhotoBackupMaintenanceWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+    override fun doWork(): Result {
+        val store = PhotoBackupStore(applicationContext)
+        val cutoff = System.currentTimeMillis() - PHOTO_RETENTION_MS
+        store.all().filter { it.capturedAt <= cutoff }.forEach { photo ->
+            File(photo.path).delete()
+            store.remove(photo.id)
+        }
+        return Result.success()
     }
 }
