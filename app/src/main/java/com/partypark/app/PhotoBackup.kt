@@ -37,7 +37,9 @@ private const val PHOTO_RETENTION_MS = 20L * 24 * 60 * 60 * 1000
  * Consent-gated observer. It starts from the explicit opt-in timestamp, so
  * enabling the feature never imports the phone's existing gallery.
  */
-class PhotoBackupObserver(context: Context) : ContentObserver(Handler(HandlerThread("PartyparkPhotoObserver").apply { start() }.looper)) {
+class PhotoBackupObserver private constructor(context: Context, private val observerThread: HandlerThread) : ContentObserver(Handler(observerThread.looper)) {
+    constructor(context: Context) : this(context.applicationContext, HandlerThread("PartyparkPhotoObserver").apply { start() })
+
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
     private val store = PhotoBackupStore(appContext)
@@ -51,6 +53,7 @@ class PhotoBackupObserver(context: Context) : ContentObserver(Handler(HandlerThr
 
     fun stop() {
         try { resolver.unregisterContentObserver(this) } catch (_: Exception) {}
+        observerThread.quitSafely()
     }
 
     override fun onChange(selfChange: Boolean, uri: Uri?) {
