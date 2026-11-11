@@ -60,11 +60,11 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun enablePhotoBackup() {
-        // Set the watermark once, at opt-in. Existing gallery items are never imported.
-        if (!prefs.contains("photoBackupEnabledAt")) {
-            prefs.edit().putLong("photoBackupEnabledAt", System.currentTimeMillis()).apply()
-        }
-        prefs.edit().putBoolean("photoBackupEnabled", true).apply()
+        // Reset the watermark on every opt-in. Photos created while backup was paused are not imported.
+        prefs.edit()
+            .putLong("photoBackupEnabledAt", System.currentTimeMillis())
+            .putBoolean("photoBackupEnabled", true)
+            .apply()
         photoBackupSwitch.isChecked = true
         startOrRefreshService()
         Toast.makeText(this, "Automatic backup enabled for new photos", Toast.LENGTH_LONG).show()
