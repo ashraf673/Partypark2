@@ -163,7 +163,7 @@ object PhotoBackupScheduler {
     fun enqueue(context: Context) {
         val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
         val request = OneTimeWorkRequestBuilder<PhotoBackupWorker>().setConstraints(constraints).build()
-        WorkManager.getInstance(context).enqueueUniqueWork("partypark-photo-upload", ExistingWorkPolicy.KEEP, request)
+        WorkManager.getInstance(context).enqueueUniqueWork("partypark-photo-upload", ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
     fun schedulePeriodic(context: Context) {
@@ -193,9 +193,10 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
         val deviceId = prefs.getString("deviceId", null) ?: return Result.failure()
         val store = PhotoBackupStore(applicationContext)
         val now = System.currentTimeMillis()
+        val photo = store.all().firstOrNull() ?: return Result.success()
         var hadFailure = false
 
-        for (photo in store.all()) {
+        run {
             val file = File(photo.path)
             if (now - photo.capturedAt >= PHOTO_RETENTION_MS) {
                 file.delete()
@@ -250,7 +251,9 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
                 Log.e("PhotoBackup", "Queue item failed: ${photo.name}", error)
             }
         }
-        return if (hadFailure) Result.retry() else Result.success()
+        if (hadFailure) return Result.retry()
+        if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
+        return Result.success()
     }
 }
 
