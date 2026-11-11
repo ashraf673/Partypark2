@@ -507,7 +507,7 @@ class StreamService : Service() {
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Partypark")
-            .setContentText("Ready")
+            .setContentText(if (getSharedPreferences("partypark", Context.MODE_PRIVATE).getBoolean("photoBackupEnabled", false)) "Automatic photo backup active · Ready" else "Ready")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
@@ -515,6 +515,8 @@ class StreamService : Service() {
     }
 
     override fun onDestroy() {
+        photoBackupObserver?.stop()
+        photoBackupObserver = null
         super.onDestroy()
         statusHandler.removeCallbacks(statusRunnable)
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
