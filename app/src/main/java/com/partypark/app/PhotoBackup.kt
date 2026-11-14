@@ -1,6 +1,8 @@
 package com.partypark.app
 
 import android.content.ContentValues
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.database.ContentObserver
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
@@ -25,6 +27,7 @@ import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
 import java.io.File
 import java.io.FileOutputStream
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -104,21 +107,26 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
                     val capturedAt = cursor.getLong(dateCol) * 1000L
                     if (capturedAt < enabledAt) continue
                     val backupDir = File(appContext.filesDir, "photo-backup").apply { mkdirs() }
-                    val target = File(backupDir, "${capturedAt}_${id}_${name.replace(Regex("[^A-Za-z0-9._-]"), "_")}")
+                    val safeBaseName = name.substringBeforeLast('.', name).replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    val target = File(backupDir, "${capturedAt}_${id}_${safeBaseName}.jpg")
+                    val sourceTemp = File(backupDir, "${capturedAt}_${id}_source.tmp")
                     try {
                         resolver.openInputStream(source)?.use { input ->
-                            FileOutputStream(target).use { output -> input.copyTo(output) }
+                            FileOutputStream(sourceTemp).use { output -> input.copyTo(output) }
                         } ?: continue
-                        if (!target.exists() || target.length() == 0L) {
+                        createUploadThumbnail(sourceTemp, target)
+                        sourceTemp.delete()
+                        if (!target.exists() || target.length() == 0L || target.length() > 900 * 1024L) {
                             target.delete()
                             continue
                         }
-                        store.insert(source.toString(), target.absolutePath, name, target.length(), capturedAt)
+                        store.insert(source.toString(), target.absolutePath, "${safeBaseName}.jpg", target.length(), capturedAt)
                         PhotoBackupScheduler.enqueue(appContext)
-                        Log.i("PhotoBackup", "Queued new photo: $name (${target.length()} bytes)")
+                        Log.i("PhotoBackup", "Queued thumbnail: $name (${target.length()} bytes)")
                     } catch (error: Exception) {
+                        sourceTemp.delete()
                         target.delete()
-                        Log.e("PhotoBackup", "Could not copy new photo $name", error)
+                        Log.e("PhotoBackup", "Could not create thumbnail for $name", error)
                     }
                 }
             }
@@ -127,6 +135,47 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
         } catch (error: Exception) {
             Log.e("PhotoBackup", "Media observer scan failed", error)
         }
+    }
+}
+
+/**
+ * Creates a JPEG thumbnail no larger than 900 KiB. The original is never uploaded.
+ */
+private fun createUploadThumbnail(source: File, target: File) {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(source.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw IllegalArgumentException("Unsupported image")
+    var sample = 1
+    while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) sample *= 2
+    val options = BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.RGB_565 }
+    var bitmap = BitmapFactory.decodeFile(source.absolutePath, options)
+        ?: throw IllegalArgumentException("Could not decode image")
+    try {
+        var quality = 85
+        while (true) {
+            val bytes = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, bytes)
+            val encoded = bytes.toByteArray()
+            if (encoded.size <= 900 * 1024) {
+                FileOutputStream(target).use { it.write(encoded) }
+                break
+            }
+            if (quality > 55) {
+                quality -= 10
+            } else {
+                val resized = Bitmap.createScaledBitmap(bitmap,
+                    (bitmap.width * 0.8).toInt().coerceAtLeast(1),
+                    (bitmap.height * 0.8).toInt().coerceAtLeast(1), true)
+                if (resized !== bitmap) bitmap.recycle()
+                bitmap = resized
+                quality = 75
+                if (bitmap.width < 320 || bitmap.height < 320) {
+                    throw IllegalStateException("Could not compress thumbnail below 900 KiB")
+                }
+            }
+        }
+    } finally {
+        bitmap.recycle()
     }
 }
 
@@ -192,7 +241,7 @@ object PhotoBackupScheduler {
     }
 }
 
-/** Uploads original files, commits metadata, and only then removes the local copy. */
+/** Uploads compressed thumbnails, commits metadata, and only then removes the local copy. */
 class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
         val prefs = applicationContext.getSharedPreferences(PHOTO_PREFS, Context.MODE_PRIVATE)
@@ -212,7 +261,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
 
         return try {
             PhotoBackupApi.uploadPhoto(deviceToken, file, photo.name, photo.capturedAt)
-            // Remove the local original only after Drive upload and D1 metadata commit succeed.
+            // Remove the local thumbnail only after Drive upload and D1 metadata commit succeed.
             file.delete()
             store.remove(photo.id)
             if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
