@@ -1,9 +1,8 @@
 package com.partypark.app
 
-import android.util.Base64
 import org.json.JSONObject
+import android.webkit.MimeTypeMap
 import java.io.File
-import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -68,11 +67,14 @@ internal object PhotoBackupApi {
     }
 
     fun uploadPhoto(deviceToken: String, file: File, fileName: String, capturedAt: Long) {
+        val extension = fileName.substringAfterLast('.', "").lowercase()
+        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+            ?.takeIf { it.startsWith("image/") } ?: "image/jpeg"
         val session = jsonRequest(
             "/v1/photos/upload-sessions",
             "POST",
             deviceToken,
-            JSONObject().put("fileName", fileName).put("mimeType", "image/jpeg")
+            JSONObject().put("fileName", fileName).put("mimeType", mimeType)
         )
         val sessionId = session.getString("sessionId")
         var driveFileId: String? = null
@@ -95,7 +97,7 @@ internal object PhotoBackupApi {
                     "PUT",
                     deviceToken,
                     payload,
-                    "image/jpeg",
+                    mimeType,
                     "bytes $offset-$end/$total"
                 )
                 if (status == 200 || status == 201) {
