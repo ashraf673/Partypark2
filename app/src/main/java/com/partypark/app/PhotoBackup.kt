@@ -1,6 +1,5 @@
 package com.partypark.app
 
-import android.content.ContentObserver
 import android.content.ContentValues
 import android.database.ContentObserver
 import android.content.Context
