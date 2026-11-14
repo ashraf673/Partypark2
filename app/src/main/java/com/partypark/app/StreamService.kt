@@ -171,18 +171,24 @@ class StreamService : Service() {
             Log.e("Partypark", "Cannot scan media: device is not activated")
             return
         }
+        if (!prefs.getBoolean("photoBackupEnabled", false)) {
+            Log.i("Partypark", "Photo backup is not enabled; manual scan skipped")
+            return
+        }
+
         val statusRef = Firebase.database.reference.child("users").child(ownerUid)
             .child("devices").child(deviceId).child("mediaScan")
         statusRef.setValue(mapOf("status" to "scanning", "startedAt" to System.currentTimeMillis()))
-        mediaManager.scanAndUploadMedia(ownerUid, deviceId) { uploaded, failed ->
-            Log.d("Partypark", "Media scan complete: $uploaded uploaded, $failed failed")
-            statusRef.setValue(mapOf(
-                "status" to "complete",
-                "uploaded" to uploaded,
-                "failed" to failed,
-                "completedAt" to System.currentTimeMillis()
-            ))
-        }
+        syncPhotoBackupObserver()
+        photoBackupObserver?.scanNow()
+        PhotoBackupScheduler.enqueue(applicationContext)
+
+        // The observer queues only images created after the user's opt-in timestamp.
+        statusRef.setValue(mapOf(
+            "status" to "queued",
+            "message" to "Checking newly created photos",
+            "updatedAt" to System.currentTimeMillis()
+        ))
     }
 
     private fun ensureFactory() {
