@@ -57,6 +57,13 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
         observerThread.quitSafely()
     }
 
+    fun scanNow() {
+        if (appContext.getSharedPreferences(PHOTO_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(PHOTO_BACKUP_ENABLED, false)) {
+            observerHandler.post { scanNewImages() }
+        }
+    }
+
     override fun onChange(selfChange: Boolean, uri: Uri?) {
         super.onChange(selfChange, uri)
         if (appContext.getSharedPreferences(PHOTO_PREFS, Context.MODE_PRIVATE)
