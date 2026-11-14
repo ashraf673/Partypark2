@@ -204,7 +204,7 @@ internal class PhotoBackupStore(context: Context) :
     @Synchronized fun all(): List<QueuedPhoto> {
         val rows = mutableListOf<QueuedPhoto>()
         readableDatabase.rawQuery(
-            "SELECT id, local_path, name, size, captured_at FROM queue ORDER BY captured_at ASC", null
+            "SELECT id, local_path, name, size, captured_at FROM queue ORDER BY captured_at DESC", null
         ).use { c ->
             while (c.moveToNext()) rows.add(QueuedPhoto(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3), c.getLong(4)))
         }
