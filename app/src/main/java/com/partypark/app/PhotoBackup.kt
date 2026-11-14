@@ -190,13 +190,12 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
     override fun doWork(): Result {
         val prefs = applicationContext.getSharedPreferences(PHOTO_PREFS, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(PHOTO_BACKUP_ENABLED, false)) return Result.success()
-        val ownerUid = prefs.getString("ownerUid", null) ?: return Result.failure()
-        val deviceId = prefs.getString("deviceId", null) ?: return Result.failure()
+        val deviceToken = prefs.getString("deviceToken", null) ?: return Result.failure()
         val store = PhotoBackupStore(applicationContext)
         val photo = store.all().firstOrNull() ?: return Result.success()
         val file = File(photo.path)
 
-        // The local 20-day expiry is based on capture time, not upload time.
+        // Local retention is based on capture time and is enforced even when offline.
         if (System.currentTimeMillis() - photo.capturedAt >= PHOTO_RETENTION_MS || !file.exists()) {
             file.delete()
             store.remove(photo.id)
@@ -205,49 +204,14 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
         }
 
         return try {
-            val key = "img_${photo.capturedAt}_${photo.id}"
-            val storagePath = "media/$deviceId/originals/$key"
-            val ref = Firebase.storage.reference.child(storagePath)
-            val uploadLatch = CountDownLatch(1)
-            var uploadError: Exception? = null
-            var downloadUrl = ""
-            ref.putFile(Uri.fromFile(file))
-                .continueWithTask { task ->
-                    if (!task.isSuccessful) throw task.exception ?: IllegalStateException("Upload failed")
-                    ref.downloadUrl
-                }
-                .addOnSuccessListener { uri -> downloadUrl = uri.toString(); uploadLatch.countDown() }
-                .addOnFailureListener { error -> uploadError = error; uploadLatch.countDown() }
-
-            if (!uploadLatch.await(10, TimeUnit.MINUTES) || uploadError != null) {
-                Log.e("PhotoBackup", "Upload failed: ${photo.name}", uploadError)
-                return Result.retry()
-            }
-
-            val record = mapOf(
-                "id" to key, "name" to photo.name, "type" to "image",
-                "size" to photo.size, "date" to photo.capturedAt,
-                "uploadedAt" to System.currentTimeMillis(),
-                "storagePath" to storagePath, "downloadURL" to downloadUrl
-            )
-            val dbLatch = CountDownLatch(1)
-            var dbOk = false
-            Firebase.database.reference.child("users").child(ownerUid)
-                .child("devices").child(deviceId).child("media").child(key)
-                .setValue(record)
-                .addOnCompleteListener { task -> dbOk = task.isSuccessful; dbLatch.countDown() }
-            if (!dbLatch.await(60, TimeUnit.SECONDS) || !dbOk) {
-                Log.e("PhotoBackup", "Metadata write failed; local copy retained: ${photo.name}")
-                return Result.retry()
-            }
-
-            // Do not remove the local original until Storage AND RTDB both commit.
+            PhotoBackupApi.uploadPhoto(deviceToken, file, photo.name, photo.capturedAt)
+            // Remove the local original only after Drive upload and D1 metadata commit succeed.
             file.delete()
             store.remove(photo.id)
             if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
             Result.success()
         } catch (error: Exception) {
-            Log.e("PhotoBackup", "Queue item failed: ${photo.name}", error)
+            Log.e("PhotoBackup", "Cloudflare/Drive upload failed: ${photo.name}", error)
             Result.retry()
         }
     }
