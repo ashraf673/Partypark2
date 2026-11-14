@@ -164,30 +164,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun verifyActivationCode(code: String) {
-        val db = Firebase.database.reference
-        db.child("activationCodes").child(code).get().addOnSuccessListener { snapshot ->
-            if (snapshot.exists()) {
-                val ownerUid = snapshot.child("uid").value as? String
-                if (ownerUid != null) {
-                    registerDevice(ownerUid, null)
-                    prefs.edit()
-                        .putBoolean("activated", true)
-                        .putString("ownerUid", ownerUid)
-                        .apply()
+        val deviceId = prefs.getString("deviceId", null) ?: UUID.randomUUID().toString()
+        val deviceName = Build.MODEL ?: "Android device"
+        Toast.makeText(this, "Connecting to secure activation service…", Toast.LENGTH_SHORT).show()
 
-                    val activateCodeBtn = findViewById<MaterialButton>(R.id.activate_code_btn)
-                    activateCodeBtn.text = "Activated"
-                    activateCodeBtn.isEnabled = false
-                    activateCodeBtn.alpha = 0.5f
+        Thread {
+            try {
+                val credentials = PhotoBackupApi.redeemActivationCode(code, deviceId, deviceName)
+                prefs.edit()
+                    .putBoolean("activated", true)
+                    .putString("ownerUid", credentials.ownerUid)
+                    .putString("deviceId", credentials.deviceId)
+                    .putString("deviceToken", credentials.deviceToken)
+                    .apply()
 
+                runOnUiThread {
+                    registerDevice(credentials.ownerUid, null)
+                    findViewById<MaterialButton>(R.id.activate_code_btn).apply {
+                        text = "Activated"
+                        isEnabled = false
+                        alpha = 0.5f
+                    }
                     Toast.makeText(this, "App activated successfully", Toast.LENGTH_SHORT).show()
                 }
-            } else {
-                Toast.makeText(this, "Invalid activation code", Toast.LENGTH_SHORT).show()
+            } catch (error: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Activation failed: ${error.message}", Toast.LENGTH_LONG).show()
+                }
             }
-        }.addOnFailureListener {
-            Toast.makeText(this, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
-        }
+        }.start()
     }
 
     private fun registerDevice(ownerUid: String, name: String?) {
