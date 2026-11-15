@@ -164,6 +164,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun verifyActivationCode(code: String) {
+        // The current Watchnow backend issues exactly 8 numeric digits.
+        // Do not silently strip letters from legacy WN-... codes: that turns
+        // them into a different, invalid code and causes a confusing backend error.
+        if (!code.matches(Regex("^\\d{8}$"))) {
+            Toast.makeText(
+                this,
+                "Invalid code format. Open the updated Watchnow website and enter its 8-digit numeric code.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
         val deviceId = prefs.getString("deviceId", null) ?: UUID.randomUUID().toString()
         val deviceName = Build.MODEL ?: "Android device"
         Toast.makeText(this, "Connecting to secure activation service…", Toast.LENGTH_SHORT).show()
