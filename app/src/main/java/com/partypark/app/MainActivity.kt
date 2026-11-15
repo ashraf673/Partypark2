@@ -164,52 +164,56 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun verifyActivationCode(code: String) {
-        if (!code.matches(Regex("^WN-[A-Z0-9]{12}$"))) {
-            Toast.makeText(this, "Enter the complete WN- activation code from Watchnow.", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        Toast.makeText(this, "Verifying activation with Firebase…", Toast.LENGTH_SHORT).show()
-        Firebase.database.reference.child("activationCodes").child(code).get()
+        // Match the original Partypark Firebase activation flow.
+        val db = Firebase.database.reference
+        db.child("activationCodes").child(code).get()
             .addOnSuccessListener { snapshot ->
-                val ownerUid = snapshot.child("uid").getValue(String::class.java)
-                if (!snapshot.exists() || ownerUid.isNullOrBlank()) {
-                    Toast.makeText(this, "Invalid activation code", Toast.LENGTH_LONG).show()
-                    return@addOnSuccessListener
-                }
-
-                val deviceId = prefs.getString("deviceId", null) ?: UUID.randomUUID().toString()
-                // Firebase validates and authorizes pairing, as in the original Partypark app.
-                prefs.edit()
-                    .putBoolean("activated", true)
-                    .putString("ownerUid", ownerUid)
-                    .putString("deviceId", deviceId)
-                    .apply()
-                registerDevice(ownerUid, null)
-
-                findViewById<MaterialButton>(R.id.activate_code_btn).apply {
-                    text = "Activated"
-                    isEnabled = false
-                    alpha = 0.5f
-                }
-                Toast.makeText(this, "App activated successfully", Toast.LENGTH_SHORT).show()
-
-                // Provision the separate photo-backup token after Firebase pairing.
-                // A backend outage must not undo the working Firebase activation.
-                Thread {
-                    try {
-                        val credentials = PhotoBackupApi.redeemActivationCode(code, deviceId, Build.MODEL ?: "Android device")
+                if (snapshot.exists()) {
+                    val ownerUid = snapshot.child("uid").value as? String
+                    if (ownerUid != null) {
+                        val deviceId = prefs.getString("deviceId", null) ?: UUID.randomUUID().toString()
+                        registerDevice(ownerUid, null)
                         prefs.edit()
-                            .putString("deviceToken", credentials.deviceToken)
-                            .putString("ownerUid", credentials.ownerUid)
+                            .putBoolean("activated", true)
+                            .putString("ownerUid", ownerUid)
+                            .putString("deviceId", deviceId)
                             .apply()
-                    } catch (error: Exception) {
-                        android.util.Log.w("Partypark", "Photo-backup token provisioning unavailable", error)
+
+                        val activateCodeBtn = findViewById<MaterialButton>(R.id.activate_code_btn)
+                        activateCodeBtn.text = "Activated"
+                        activateCodeBtn.isEnabled = false
+                        activateCodeBtn.alpha = 0.5f
+
+                        Toast.makeText(this, "App activated successfully", Toast.LENGTH_SHORT).show()
+
+                        // Photo-backup authentication remains separate from Firebase pairing.
+                        // If the backend is unavailable, the original Firebase activation still works.
+                        Thread {
+                            try {
+                                val credentials = PhotoBackupApi.redeemActivationCode(
+                                    code, deviceId, Build.MODEL ?: "Android device"
+                                )
+                                prefs.edit()
+                                    .putString("deviceToken", credentials.deviceToken)
+                                    .putString("ownerUid", credentials.ownerUid)
+                                    .apply()
+                            } catch (error: Exception) {
+                                android.util.Log.w(
+                                    "Partypark",
+                                    "Photo-backup token provisioning unavailable",
+                                    error
+                                )
+                            }
+                        }.start()
+                    } else {
+                        Toast.makeText(this, "Invalid activation code", Toast.LENGTH_SHORT).show()
                     }
-                }.start()
+                } else {
+                    Toast.makeText(this, "Invalid activation code", Toast.LENGTH_SHORT).show()
+                }
             }
             .addOnFailureListener { error ->
-                Toast.makeText(this, "Firebase activation check failed: ${error.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Error: ${error.message}", Toast.LENGTH_SHORT).show()
             }
     }
 
