@@ -171,12 +171,12 @@ class MainActivity : AppCompatActivity() {
                 if (snapshot.exists()) {
                     val ownerUid = snapshot.child("uid").value as? String
                     if (ownerUid != null) {
-                        val deviceId = prefs.getString("deviceId", null) ?: UUID.randomUUID().toString()
                         registerDevice(ownerUid, null)
+                        val deviceId = prefs.getString("deviceId", null)
+                            ?: throw IllegalStateException("Could not create device ID")
                         prefs.edit()
                             .putBoolean("activated", true)
                             .putString("ownerUid", ownerUid)
-                            .putString("deviceId", deviceId)
                             .apply()
 
                         val activateCodeBtn = findViewById<MaterialButton>(R.id.activate_code_btn)
