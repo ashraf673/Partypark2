@@ -56,7 +56,7 @@ internal object PhotoBackupApi {
             "/v1/devices/redeem",
             "POST",
             data = JSONObject()
-                .put("code", code.filter { it.isDigit() })
+                .put("code", code.trim().uppercase())
                 .put("deviceId", deviceId)
                 .put("deviceName", deviceName)
         )
