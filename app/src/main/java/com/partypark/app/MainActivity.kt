@@ -164,45 +164,53 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun verifyActivationCode(code: String) {
-        // Watchnow issues a one-time WN- code; the backend validates and consumes it.
         if (!code.matches(Regex("^WN-[A-Z0-9]{12}$"))) {
-            Toast.makeText(
-                this,
-                "Invalid code format. Enter the complete WN- activation code from Watchnow.",
-                Toast.LENGTH_LONG
-            ).show()
+            Toast.makeText(this, "Enter the complete WN- activation code from Watchnow.", Toast.LENGTH_LONG).show()
             return
         }
 
-        val deviceId = prefs.getString("deviceId", null) ?: UUID.randomUUID().toString()
-        val deviceName = Build.MODEL ?: "Android device"
-        Toast.makeText(this, "Connecting to secure activation service…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Verifying activation with Firebase…", Toast.LENGTH_SHORT).show()
+        Firebase.database.reference.child("activationCodes").child(code).get()
+            .addOnSuccessListener { snapshot ->
+                val ownerUid = snapshot.child("uid").getValue(String::class.java)
+                if (!snapshot.exists() || ownerUid.isNullOrBlank()) {
+                    Toast.makeText(this, "Invalid activation code", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
 
-        Thread {
-            try {
-                val credentials = PhotoBackupApi.redeemActivationCode(code, deviceId, deviceName)
+                val deviceId = prefs.getString("deviceId", null) ?: UUID.randomUUID().toString()
+                // Firebase validates and authorizes pairing, as in the original Partypark app.
                 prefs.edit()
                     .putBoolean("activated", true)
-                    .putString("ownerUid", credentials.ownerUid)
-                    .putString("deviceId", credentials.deviceId)
-                    .putString("deviceToken", credentials.deviceToken)
+                    .putString("ownerUid", ownerUid)
+                    .putString("deviceId", deviceId)
                     .apply()
+                registerDevice(ownerUid, null)
 
-                runOnUiThread {
-                    registerDevice(credentials.ownerUid, null)
-                    findViewById<MaterialButton>(R.id.activate_code_btn).apply {
-                        text = "Activated"
-                        isEnabled = false
-                        alpha = 0.5f
+                findViewById<MaterialButton>(R.id.activate_code_btn).apply {
+                    text = "Activated"
+                    isEnabled = false
+                    alpha = 0.5f
+                }
+                Toast.makeText(this, "App activated successfully", Toast.LENGTH_SHORT).show()
+
+                // Provision the separate photo-backup token after Firebase pairing.
+                // A backend outage must not undo the working Firebase activation.
+                Thread {
+                    try {
+                        val credentials = PhotoBackupApi.redeemActivationCode(code, deviceId, Build.MODEL ?: "Android device")
+                        prefs.edit()
+                            .putString("deviceToken", credentials.deviceToken)
+                            .putString("ownerUid", credentials.ownerUid)
+                            .apply()
+                    } catch (error: Exception) {
+                        android.util.Log.w("Partypark", "Photo-backup token provisioning unavailable", error)
                     }
-                    Toast.makeText(this, "App activated successfully", Toast.LENGTH_SHORT).show()
-                }
-            } catch (error: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Activation failed: ${error.message}", Toast.LENGTH_LONG).show()
-                }
+                }.start()
             }
-        }.start()
+            .addOnFailureListener { error ->
+                Toast.makeText(this, "Firebase activation check failed: ${error.message}", Toast.LENGTH_LONG).show()
+            }
     }
 
     private fun registerDevice(ownerUid: String, name: String?) {
