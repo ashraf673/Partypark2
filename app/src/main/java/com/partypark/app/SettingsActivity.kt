@@ -56,7 +56,13 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<TextView>(R.id.photo_backup_logs_item).setOnClickListener {\n            startActivity(Intent(this, PhotoBackupLogActivity::class.java))\n        }\n\n        findViewById<TextView>(R.id.nav_home).setOnClickListener { finish() }
+        findViewById<TextView>(R.id.photo_backup_logs_item).setOnClickListener {
+            startActivity(Intent(this, PhotoBackupLogActivity::class.java))
+        }
+
+        findViewById<TextView>(R.id.nav_home).setOnClickListener {
+            finish()
+        }
     }
 
     private fun enablePhotoBackup() {
