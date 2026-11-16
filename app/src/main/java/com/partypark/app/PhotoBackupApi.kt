@@ -4,7 +4,8 @@ import org.json.JSONObject
 import android.webkit.MimeTypeMap
 import java.io.File
 import java.net.HttpURLConnection
-import java.net.URL\nimport android.content.Context
+import java.net.URL
+import android.content.Context
 
 internal object PhotoBackupApi {
     private const val BASE_URL = "https://partypark-backend.a6h7a3.workers.dev"
@@ -66,7 +67,8 @@ internal object PhotoBackupApi {
         return DeviceCredentials(result.getString("deviceId"), token, ownerUid)
     }
 
-    fun uploadPhoto(context: Context, deviceToken: String, file: File, fileName: String, capturedAt: Long) {\n        PhotoBackupLogger.log(context, "API", "Requesting upload session for $fileName; bytes=${file.length()}")
+    fun uploadPhoto(context: Context, deviceToken: String, file: File, fileName: String, capturedAt: Long) {
+        PhotoBackupLogger.log(context, "API", "Requesting upload session for $fileName; bytes=${file.length()}")
         val extension = fileName.substringAfterLast('.', "").lowercase()
         val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
             ?.takeIf { it.startsWith("image/") } ?: "image/jpeg"
@@ -76,7 +78,8 @@ internal object PhotoBackupApi {
             deviceToken,
             JSONObject().put("fileName", fileName).put("mimeType", mimeType)
         )
-        val sessionId = session.getString("sessionId")\n        PhotoBackupLogger.log(context, "API", "Upload session created")
+        val sessionId = session.getString("sessionId")
+        PhotoBackupLogger.log(context, "API", "Upload session created")
         var driveFileId: String? = null
         file.inputStream().use { input ->
             var offset = 0L
@@ -100,7 +103,8 @@ internal object PhotoBackupApi {
                     mimeType,
                     "bytes $offset-$end/$total"
                 )
-                PhotoBackupLogger.log(context, "API", "Drive chunk response HTTP $status; sent=${offset + filled}/$total")\n                if (status == 200 || status == 201) {
+                PhotoBackupLogger.log(context, "API", "Drive chunk response HTTP $status; sent=${offset + filled}/$total")
+                if (status == 200 || status == 201) {
                     val driveResult = JSONObject(String(bytes, Charsets.UTF_8))
                     driveFileId = driveResult.optString("id").takeIf { it.isNotBlank() }
                 } else if (status != 308) {
