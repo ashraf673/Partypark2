@@ -23,6 +23,7 @@ class PhotoBackupLogActivity : AppCompatActivity() {
         fun button(label: String, action: () -> Unit) {
             actions.addView(Button(this).apply { text = label; setOnClickListener { action() } }, LinearLayout.LayoutParams(0, -2, 1f))
         }
+        button("Refresh") { refresh() }
         button("Copy") {
             val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("Partypark photo backup logs", logText.text))
