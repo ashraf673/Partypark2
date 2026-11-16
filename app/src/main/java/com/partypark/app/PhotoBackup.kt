@@ -93,7 +93,7 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
                 arrayOf(enabledAtSeconds.toString()),
                 "${MediaStore.Images.Media.DATE_ADDED} ASC"
             )?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                if (cursor.count == 0) PhotoBackupLogger.log(appContext, "SCAN", "No new images found in MediaStore")\n                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
                 val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
                 val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
@@ -260,7 +260,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
         }
 
         return try {
-            PhotoBackupApi.uploadPhoto(deviceToken, file, photo.name, photo.capturedAt)\n            PhotoBackupLogger.log(applicationContext, "UPLOAD", "Server confirmed upload and metadata commit for ${photo.name}")
+            PhotoBackupApi.uploadPhoto(applicationContext, deviceToken, file, photo.name, photo.capturedAt)\n            PhotoBackupLogger.log(applicationContext, "UPLOAD", "Server confirmed upload and metadata commit for ${photo.name}")
             // Remove the local thumbnail only after Drive upload and D1 metadata commit succeed.
             file.delete()
             store.remove(photo.id)
