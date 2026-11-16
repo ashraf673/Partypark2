@@ -190,7 +190,7 @@ class MainActivity : AppCompatActivity() {
                         // If the backend is unavailable, the original Firebase activation still works.
                         Thread {
                             try {
-                                val credentials = PhotoBackupApi.redeemActivationCode(
+                                PhotoBackupLogger.log(applicationContext, "AUTH", "Requesting cloud-backup device token")\n                                val credentials = PhotoBackupApi.redeemActivationCode(
                                     code, deviceId, Build.MODEL ?: "Android device"
                                 )
                                 prefs.edit()
