@@ -44,6 +44,10 @@
             android:name=".ConnectivityActivity"
             android:exported="false" />
 
+        <activity
+            android:name=".PhotoBackupLogActivity"
+            android:exported="false" />
+
         <service
             android:name=".StreamService"
             android:enabled="true"
