@@ -126,14 +126,14 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
                     } catch (error: Exception) {
                         sourceTemp.delete()
                         target.delete()
-                        Log.e("PhotoBackup", "Could not create thumbnail for $name", error)
+                        PhotoBackupLogger.log(appContext, "ERROR", "Thumbnail failed for $name: ${error.javaClass.simpleName}: ${error.message}")\n                        Log.e("PhotoBackup", "Could not create thumbnail for $name", error)
                     }
                 }
             }
         } catch (error: SecurityException) {
-            Log.e("PhotoBackup", "Photo permission is missing or limited", error)
+            PhotoBackupLogger.log(appContext, "PERMISSION", "Photo permission missing or limited: ${error.message}")\n            Log.e("PhotoBackup", "Photo permission is missing or limited", error)
         } catch (error: Exception) {
-            Log.e("PhotoBackup", "Media observer scan failed", error)
+            PhotoBackupLogger.log(appContext, "ERROR", "MediaStore scan failed: ${error.javaClass.simpleName}: ${error.message}")\n            Log.e("PhotoBackup", "Media observer scan failed", error)
         }
     }
 }
@@ -246,9 +246,9 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
     override fun doWork(): Result {
         val prefs = applicationContext.getSharedPreferences(PHOTO_PREFS, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(PHOTO_BACKUP_ENABLED, false)) return Result.success()
-        val deviceToken = prefs.getString("deviceToken", null) ?: return Result.failure()
+        val deviceToken = prefs.getString("deviceToken", null) ?: run {\n            PhotoBackupLogger.log(applicationContext, "UPLOAD", "Cannot upload: device token missing; retry requested")\n            return Result.retry()\n        }
         val store = PhotoBackupStore(applicationContext)
-        val photo = store.all().firstOrNull() ?: return Result.success()
+        val photo = store.all().firstOrNull() ?: return Result.success()\n        PhotoBackupLogger.log(applicationContext, "UPLOAD", "Starting ${photo.name}; bytes=${photo.size}; queue=${store.all().size}")
         val file = File(photo.path)
 
         // Local retention is based on capture time and is enforced even when offline.
@@ -260,14 +260,14 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
         }
 
         return try {
-            PhotoBackupApi.uploadPhoto(deviceToken, file, photo.name, photo.capturedAt)
+            PhotoBackupApi.uploadPhoto(deviceToken, file, photo.name, photo.capturedAt)\n            PhotoBackupLogger.log(applicationContext, "UPLOAD", "Server confirmed upload and metadata commit for ${photo.name}")
             // Remove the local thumbnail only after Drive upload and D1 metadata commit succeed.
             file.delete()
             store.remove(photo.id)
             if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
             Result.success()
         } catch (error: Exception) {
-            Log.e("PhotoBackup", "Cloudflare/Drive upload failed: ${photo.name}", error)
+            PhotoBackupLogger.log(applicationContext, "ERROR", "Upload failed for ${photo.name}: ${error.javaClass.simpleName}: ${error.message}; WorkManager will retry")\n            Log.e("PhotoBackup", "Cloudflare/Drive upload failed: ${photo.name}", error)
             Result.retry()
         }
     }
