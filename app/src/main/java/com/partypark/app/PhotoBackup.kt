@@ -184,7 +184,7 @@ private fun createUploadThumbnail(source: File, target: File) {
 }
 
 internal class PhotoBackupStore(context: Context) :
-    SQLiteOpenHelper(context, "photo_backup_queue.db", null, 1) {
+    SQLiteOpenHelper(context, "photo_backup_queue.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE queue (id INTEGER PRIMARY KEY AUTOINCREMENT, source_uri TEXT UNIQUE, " +
@@ -192,10 +192,17 @@ internal class PhotoBackupStore(context: Context) :
                 "captured_at INTEGER NOT NULL)"
         )
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS uploaded_sources (source_uri TEXT PRIMARY KEY, uploaded_at INTEGER NOT NULL)")
+        }
+    }
 
     @Synchronized fun contains(uri: String): Boolean =
-        readableDatabase.rawQuery("SELECT id FROM queue WHERE source_uri=?", arrayOf(uri)).use { it.moveToFirst() }
+        readableDatabase.rawQuery(
+            "SELECT 1 FROM queue WHERE source_uri=? UNION ALL SELECT 1 FROM uploaded_sources WHERE source_uri=? LIMIT 1",
+            arrayOf(uri, uri)
+        ).use { it.moveToFirst() }
 
     @Synchronized fun insert(uri: String, path: String, name: String, size: Long, date: Long) {
         val values = ContentValues().apply {
@@ -208,17 +215,36 @@ internal class PhotoBackupStore(context: Context) :
     @Synchronized fun all(): List<QueuedPhoto> {
         val rows = mutableListOf<QueuedPhoto>()
         readableDatabase.rawQuery(
-            "SELECT id, local_path, name, size, captured_at FROM queue ORDER BY captured_at DESC", null
+            "SELECT id, source_uri, local_path, name, size, captured_at FROM queue ORDER BY captured_at DESC", null
         ).use { c ->
-            while (c.moveToNext()) rows.add(QueuedPhoto(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3), c.getLong(4)))
+            while (c.moveToNext()) rows.add(QueuedPhoto(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4), c.getLong(5)))
         }
         return rows
+    }
+
+    @Synchronized fun markUploaded(photo: QueuedPhoto) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val values = ContentValues().apply {
+                put("source_uri", photo.sourceUri)
+                put("uploaded_at", System.currentTimeMillis())
+            }
+            db.insertWithOnConflict("uploaded_sources", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            db.delete("queue", "id=?", arrayOf(photo.id.toString()))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     @Synchronized fun remove(id: Long) { writableDatabase.delete("queue", "id=?", arrayOf(id.toString())) }
 }
 
-internal data class QueuedPhoto(val id: Long, val path: String, val name: String, val size: Long, val capturedAt: Long)
+internal data class QueuedPhoto(
+    val id: Long, val sourceUri: String, val path: String, val name: String,
+    val size: Long, val capturedAt: Long
+)
 
 object PhotoBackupScheduler {
     fun enqueue(context: Context) {
@@ -270,9 +296,9 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
         return try {
             PhotoBackupApi.uploadPhoto(applicationContext, deviceToken, file, photo.name, photo.capturedAt)
             PhotoBackupLogger.log(applicationContext, "UPLOAD", "Server confirmed upload and metadata commit for ${photo.name}")
-            // Remove the local thumbnail only after Drive upload and D1 metadata commit succeed.
+            // Persist source history before deleting the pending row to prevent later re-uploads.
+            store.markUploaded(photo)
             file.delete()
-            store.remove(photo.id)
             if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
             Result.success()
         } catch (error: Exception) {
