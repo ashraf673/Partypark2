@@ -191,6 +191,7 @@ internal class PhotoBackupStore(context: Context) :
                 "local_path TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL, " +
                 "captured_at INTEGER NOT NULL)"
         )
+        db.execSQL("CREATE TABLE uploaded_sources (source_uri TEXT PRIMARY KEY, uploaded_at INTEGER NOT NULL)")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
