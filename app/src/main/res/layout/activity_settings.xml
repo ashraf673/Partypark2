@@ -39,7 +39,6 @@
             android:textSize="16sp" />
     </com.google.android.material.card.MaterialCardView>
 
-
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/photo_backup_card"
         android:layout_width="0dp"
@@ -74,6 +73,18 @@
                 android:text="Back up new photos only. Keep offline copies for up to 20 days; upload automatically when connected. Cloud copies expire after 15 days."
                 android:textColor="#cbd5e1"
                 android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/photo_backup_logs_item"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:padding="14dp"
+                android:text="View Photo Backup Logs"
+                android:textColor="#A78BFA"
+                android:textSize="14sp"
+                android:clickable="true"
+                android:focusable="true" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
