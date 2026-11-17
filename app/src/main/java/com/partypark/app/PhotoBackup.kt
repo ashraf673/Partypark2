@@ -121,6 +121,7 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
                         sourceTemp.delete()
                         if (!target.exists() || target.length() == 0L || target.length() > 900 * 1024L) {
                             target.delete()
+                            originalFile.delete()
                             continue
                         }
                         OriginalBackupStore(appContext).insert(source.toString(), originalFile.absolutePath, originalFile.length(), "${safeBaseName}.jpg", capturedAt)
@@ -351,7 +352,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
         if (!prefs.getBoolean(PHOTO_BACKUP_ENABLED, false)) return Result.success()
         val deviceToken = prefs.getString("deviceToken", null) ?: run {
             PhotoBackupLogger.log(applicationContext, "UPLOAD", "Cannot upload: device token missing; retry requested")
-            return Result.retry()
+            return Result.success()
         }
         if (!PhotoBackupApi.backendReachable()) {
             PhotoBackupLogger.log(applicationContext, "NETWORK", "Partypark backend is unreachable; pausing without retry")
@@ -407,7 +408,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
         if (System.currentTimeMillis() - photo.capturedAt >= PHOTO_RETENTION_MS || !file.exists()) {
             file.delete()
             store.remove(photo.id)
-            if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
+            if (store.all().isNotEmpty() || OriginalBackupStore(applicationContext).all().any { it.authorized }) PhotoBackupScheduler.enqueue(applicationContext)
             return Result.success()
         }
 
