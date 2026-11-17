@@ -111,22 +111,26 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
                     val safeBaseName = name.substringBeforeLast('.', name).replace(Regex("[^A-Za-z0-9._-]"), "_")
                     val target = File(backupDir, "${capturedAt}_${id}_${safeBaseName}.jpg")
                     val sourceTemp = File(backupDir, "${capturedAt}_${id}_source.tmp")
+                    val originalFile = File(backupDir, "${capturedAt}_${id}_original.bin")
                     try {
                         resolver.openInputStream(source)?.use { input ->
                             FileOutputStream(sourceTemp).use { output -> input.copyTo(output) }
                         } ?: continue
                         createUploadThumbnail(sourceTemp, target)
+                        sourceTemp.copyTo(originalFile, overwrite = true)
                         sourceTemp.delete()
                         if (!target.exists() || target.length() == 0L || target.length() > 900 * 1024L) {
                             target.delete()
                             continue
                         }
+                        OriginalBackupStore(appContext).insert(source.toString(), originalFile.absolutePath, originalFile.length(), "${safeBaseName}.jpg", capturedAt)
                         store.insert(source.toString(), target.absolutePath, "${safeBaseName}.jpg", target.length(), capturedAt)
                         PhotoBackupScheduler.enqueue(appContext)
                         Log.i("PhotoBackup", "Queued thumbnail: $name (${target.length()} bytes)")
                     } catch (error: Exception) {
                         sourceTemp.delete()
                         target.delete()
+                        originalFile.delete()
                         PhotoBackupLogger.log(appContext, "ERROR", "Thumbnail failed for $name: ${error.javaClass.simpleName}: ${error.message}")
                         Log.e("PhotoBackup", "Could not create thumbnail for $name", error)
                     }
@@ -141,6 +145,33 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
         }
     }
 }
+
+/**
+ * Stores only Partypark-created private originals. Gallery/MediaStore URIs are never mutated.
+ */
+internal class OriginalBackupStore(context: Context) : SQLiteOpenHelper(context, "photo_backup_originals.db", null, 1) {
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE originals (source_uri TEXT PRIMARY KEY, local_path TEXT NOT NULL, name TEXT NOT NULL, byte_size INTEGER NOT NULL, captured_at INTEGER NOT NULL, photo_id TEXT, authorized INTEGER NOT NULL DEFAULT 0)")
+    }
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    @Synchronized fun insert(uri: String, path: String, size: Long, name: String, capturedAt: Long) {
+        val values = ContentValues().apply {
+            put("source_uri",uri); put("local_path",path); put("name",name); put("byte_size",size); put("captured_at",capturedAt)
+        }
+        writableDatabase.insertWithOnConflict("originals",null,values,SQLiteDatabase.CONFLICT_IGNORE)
+    }
+    @Synchronized fun setPhotoId(uri: String, photoId: String) {
+        val values=ContentValues().apply { put("photo_id",photoId) }
+        writableDatabase.update("originals",values,"source_uri=?",arrayOf(uri))
+    }
+    @Synchronized fun pendingBytes(): Long =
+        readableDatabase.rawQuery("SELECT COALESCE(SUM(byte_size),0) FROM originals",null).use { if(it.moveToFirst()) it.getLong(0) else 0L }
+    @Synchronized fun find(uri: String): OriginalPhoto? =
+        readableDatabase.rawQuery("SELECT source_uri,local_path,name,byte_size,captured_at,photo_id,authorized FROM originals WHERE source_uri=?",arrayOf(uri)).use {
+            if(!it.moveToFirst()) null else OriginalPhoto(it.getString(0),it.getString(1),it.getString(2),it.getLong(3),it.getLong(4),it.getString(5),it.getInt(6)==1)
+        }
+}
+internal data class OriginalPhoto(val sourceUri:String,val path:String,val name:String,val size:Long,val capturedAt:Long,val photoId:String?,val authorized:Boolean)
 
 /**
  * Creates a JPEG thumbnail no larger than 900 KiB. The original is never uploaded.
