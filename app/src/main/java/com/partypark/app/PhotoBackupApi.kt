@@ -67,7 +67,7 @@ internal object PhotoBackupApi {
         return DeviceCredentials(result.getString("deviceId"), token, ownerUid)
     }
 
-    fun uploadPhoto(context: Context, deviceToken: String, file: File, fileName: String, capturedAt: Long) {
+    fun uploadPhoto(context: Context, deviceToken: String, file: File, fileName: String, capturedAt: Long, assetType: String = "thumbnail", photoId: String? = null, originalByteSize: Long = 0L): String {
         PhotoBackupLogger.log(context, "API", "Requesting upload session for $fileName; bytes=${file.length()}")
         val extension = fileName.substringAfterLast('.', "").lowercase()
         val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
@@ -76,7 +76,7 @@ internal object PhotoBackupApi {
             "/v1/photos/upload-sessions",
             "POST",
             deviceToken,
-            JSONObject().put("fileName", fileName).put("mimeType", mimeType)
+            JSONObject().put("fileName", fileName).put("mimeType", mimeType).put("assetType", assetType).put("photoId", photoId).put("originalByteSize", originalByteSize)
         )
         val sessionId = session.getString("sessionId")
         PhotoBackupLogger.log(context, "API", "Upload session created")
@@ -119,7 +119,7 @@ internal object PhotoBackupApi {
             "/v1/photos/upload-sessions/$sessionId/complete",
             "POST",
             deviceToken,
-            JSONObject().put("driveFileId", id).put("capturedAt", capturedAt)
-        )
+            JSONObject().put("driveFileId", id).put("capturedAt", capturedAt).put("originalByteSize", originalByteSize)
+        ).optString("photoId")
     }
 }
