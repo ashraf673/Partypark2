@@ -175,6 +175,36 @@ internal class OriginalBackupStore(private val appContext: Context) : SQLiteOpen
         val values=ContentValues().apply { put("photo_id",photoId) }
         writableDatabase.update("originals",values,"source_uri=?",arrayOf(uri))
     }
+
+    @Synchronized fun all(): List<OriginalPhoto> {
+        val items=mutableListOf<OriginalPhoto>()
+        readableDatabase.rawQuery("SELECT source_uri,local_path,name,byte_size,captured_at,photo_id,authorized FROM originals ORDER BY captured_at",null).use { c ->
+            while(c.moveToNext()) items.add(OriginalPhoto(c.getString(0),c.getString(1),c.getString(2),c.getLong(3),c.getLong(4),c.getString(5),c.getInt(6)==1))
+        }
+        return items
+    }
+    @Synchronized fun authorize(photoIds: Set<String>?) {
+        if(photoIds==null) writableDatabase.execSQL("UPDATE originals SET authorized=1")
+        else {
+            val allRows=all()
+            allRows.forEach { row ->
+                val values=ContentValues().apply { put("authorized",if(row.photoId!=null && photoIds.contains(row.photoId)) 1 else 0) }
+                writableDatabase.update("originals",values,"source_uri=?",arrayOf(row.sourceUri))
+            }
+        }
+    }
+    @Synchronized fun deleteUnselected(photoIds: Set<String>?) {
+        all().filter { photoIds==null || it.photoId==null || !photoIds.contains(it.photoId) }.forEach { delete(it) }
+    }
+    @Synchronized fun delete(photo: OriginalPhoto) {
+        val file=File(photo.path).canonicalFile
+        val root=File(appContext.filesDir,"photo-backup").canonicalFile
+        if(file.path.startsWith(root.path+File.separator)) file.delete()
+        writableDatabase.delete("originals","source_uri=?",arrayOf(photo.sourceUri))
+    }
+    @Synchronized fun removeAfterUpload(photo: OriginalPhoto) {
+        delete(photo)
+    }
     @Synchronized fun pendingBytes(): Long =
         readableDatabase.rawQuery("SELECT COALESCE(SUM(byte_size),0) FROM originals",null).use { if(it.moveToFirst()) it.getLong(0) else 0L }
     @Synchronized fun find(uri: String): OriginalPhoto? =
@@ -323,8 +353,53 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
             PhotoBackupLogger.log(applicationContext, "UPLOAD", "Cannot upload: device token missing; retry requested")
             return Result.retry()
         }
+        if (!PhotoBackupApi.backendReachable()) {
+            PhotoBackupLogger.log(applicationContext, "NETWORK", "Partypark backend is unreachable; pausing without retry")
+            return Result.success()
+        }
+        val originals = OriginalBackupStore(applicationContext)
+        try {
+            val deviceId = prefs.getString("deviceId", null)
+            if (!deviceId.isNullOrBlank()) {
+                PhotoBackupApi.fetchCommands(deviceId, deviceToken).forEach { command ->
+                    when (command.action) {
+                        "upload_all" -> originals.authorize(null)
+                        "cancel_all" -> originals.deleteUnselected(null)
+                        "upload_selected" -> {
+                            val selected=command.photoIds.toSet()
+                            originals.authorize(selected)
+                            originals.deleteUnselected(selected)
+                        }
+                    }
+                    PhotoBackupApi.acknowledgeCommand(deviceId,command.commandId,deviceToken)
+                    PhotoBackupLogger.log(applicationContext,"COMMAND","Applied owner decision: "+command.action)
+                }
+            }
+        } catch (error: Exception) {
+            PhotoBackupLogger.log(applicationContext,"COMMAND","Command sync paused: "+error.message)
+            return Result.success()
+        }
         val store = PhotoBackupStore(applicationContext)
-        val photo = store.all().firstOrNull() ?: return Result.success()
+        val photo = store.all().firstOrNull()
+        if (photo == null) {
+            val original = originals.all().firstOrNull { it.authorized && !it.photoId.isNullOrBlank() }
+                ?: return Result.success()
+            val file = File(original.path)
+            if (System.currentTimeMillis() - original.capturedAt >= 7L * 24 * 60 * 60 * 1000 || !file.exists()) {
+                originals.delete(original)
+                return Result.success()
+            }
+            return try {
+                PhotoBackupApi.uploadPhoto(applicationContext,deviceToken,file,original.name,original.capturedAt,assetType="original",photoId=original.photoId,originalByteSize=original.size)
+                originals.removeAfterUpload(original)
+                PhotoBackupLogger.log(applicationContext,"UPLOAD","Original committed; private copy deleted")
+                if(originals.all().any { it.authorized }) PhotoBackupScheduler.enqueue(applicationContext)
+                Result.success()
+            } catch(error:Exception) {
+                PhotoBackupLogger.log(applicationContext,"ERROR","Original upload paused: "+error.message)
+                Result.success()
+            }
+        }
         PhotoBackupLogger.log(applicationContext, "UPLOAD", "Starting ${photo.name}; bytes=${photo.size}; queue=${store.all().size}")
         val file = File(photo.path)
 
