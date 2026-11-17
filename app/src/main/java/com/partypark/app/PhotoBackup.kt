@@ -149,11 +149,22 @@ class PhotoBackupObserver private constructor(context: Context, private val obse
 /**
  * Stores only Partypark-created private originals. Gallery/MediaStore URIs are never mutated.
  */
-internal class OriginalBackupStore(context: Context) : SQLiteOpenHelper(context, "photo_backup_originals.db", null, 1) {
+internal class OriginalBackupStore(private val appContext: Context) : SQLiteOpenHelper(appContext, "photo_backup_originals.db", null, 1) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE originals (source_uri TEXT PRIMARY KEY, local_path TEXT NOT NULL, name TEXT NOT NULL, byte_size INTEGER NOT NULL, captured_at INTEGER NOT NULL, photo_id TEXT, authorized INTEGER NOT NULL DEFAULT 0)")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    @Synchronized fun expireOldOriginals(now: Long = System.currentTimeMillis()) {
+        val cutoff = now - 7L * 24 * 60 * 60 * 1000
+        readableDatabase.rawQuery("SELECT source_uri,local_path FROM originals WHERE captured_at<=?", arrayOf(cutoff.toString())).use { cursor ->
+            while (cursor.moveToNext()) {
+                val file = File(cursor.getString(1)).canonicalFile
+                val root = File(appContext.filesDir, "photo-backup").canonicalFile
+                if (file.path.startsWith(root.path + File.separator)) file.delete()
+                writableDatabase.delete("originals", "source_uri=?", arrayOf(cursor.getString(0)))
+            }
+        }
+    }
     @Synchronized fun insert(uri: String, path: String, size: Long, name: String, capturedAt: Long) {
         val values = ContentValues().apply {
             put("source_uri",uri); put("local_path",path); put("name",name); put("byte_size",size); put("captured_at",capturedAt)
@@ -326,8 +337,11 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
         }
 
         return try {
-            PhotoBackupApi.uploadPhoto(applicationContext, deviceToken, file, photo.name, photo.capturedAt)
-            PhotoBackupLogger.log(applicationContext, "UPLOAD", "Server confirmed upload and metadata commit for ${photo.name}")
+            val originalStore = OriginalBackupStore(applicationContext)
+            val stagedOriginal = originalStore.find(photo.sourceUri)
+            val photoId = PhotoBackupApi.uploadPhoto(applicationContext, deviceToken, file, photo.name, photo.capturedAt, assetType = "thumbnail", originalByteSize = stagedOriginal?.size ?: 0L)
+            if (photoId.isNotBlank()) originalStore.setPhotoId(photo.sourceUri, photoId)
+            PhotoBackupLogger.log(applicationContext, "UPLOAD", "Server confirmed thumbnail commit for " + photo.name + "; original staged=" + (stagedOriginal != null))
             // Persist source history before deleting the pending row to prevent later re-uploads.
             store.markUploaded(photo)
             file.delete()
@@ -344,6 +358,7 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
 /** Local-only cleanup; deliberately has no network constraint. */
 class PhotoBackupMaintenanceWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
+        OriginalBackupStore(applicationContext).expireOldOriginals()
         val store = PhotoBackupStore(applicationContext)
         val cutoff = System.currentTimeMillis() - PHOTO_RETENTION_MS
         store.all().filter { it.capturedAt <= cutoff }.forEach { photo ->
