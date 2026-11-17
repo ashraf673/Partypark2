@@ -48,6 +48,9 @@ dependencies {
     implementation("com.google.firebase:firebase-database-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
 
+    // Durable offline photo backup and network-constrained upload queue
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     // Location
     implementation("com.google.android.gms:play-services-location:21.1.0")
 
