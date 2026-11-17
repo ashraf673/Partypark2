@@ -3,7 +3,7 @@ name: Build Partypark debug APK
 on:
   push:
     branches:
-      - feature/photo-backup-v1
+      - feature/two-phase-original-backup
   workflow_dispatch:
 
 jobs:
