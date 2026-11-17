@@ -52,6 +52,31 @@ internal object PhotoBackupApi {
         return response
     }
 
+
+    data class DeviceCommand(val commandId: String, val action: String, val photoIds: List<String>)
+
+    fun backendReachable(): Boolean = try {
+        val (status, bytes) = request("/health", "GET")
+        status == 200 && JSONObject(String(bytes, Charsets.UTF_8)).optBoolean("ok")
+    } catch (_: Exception) { false }
+
+    fun fetchCommands(deviceId: String, token: String): List<DeviceCommand> {
+        val (status, bytes) = request("/v1/devices/commands/$deviceId", "GET", token)
+        if (status !in 200..299) throw IllegalStateException("Command request failed ($status)")
+        val rows = JSONObject(String(bytes, Charsets.UTF_8)).optJSONArray("commands") ?: return emptyList()
+        return (0 until rows.length()).mapNotNull { index ->
+            val row = rows.optJSONObject(index) ?: return@mapNotNull null
+            val payload = row.optJSONObject("payload") ?: JSONObject()
+            val ids = payload.optJSONArray("photoIds")
+            DeviceCommand(row.optString("commandId"), row.optString("action"),
+                if (ids == null) emptyList() else (0 until ids.length()).map { ids.optString(it) })
+        }
+    }
+
+    fun acknowledgeCommand(deviceId: String, commandId: String, token: String) {
+        jsonRequest("/v1/devices/commands/$deviceId/$commandId/ack", "POST", token, JSONObject())
+    }
+
     fun redeemActivationCode(code: String, deviceId: String, deviceName: String): DeviceCredentials {
         val result = jsonRequest(
             "/v1/devices/redeem",
