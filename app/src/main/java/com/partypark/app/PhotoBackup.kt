@@ -421,12 +421,12 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
             // Persist source history before deleting the pending row to prevent later re-uploads.
             store.markUploaded(photo)
             file.delete()
-            if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
+            if (store.all().isNotEmpty() || originalStore.all().any { it.authorized }) PhotoBackupScheduler.enqueue(applicationContext)
             Result.success()
         } catch (error: Exception) {
-            PhotoBackupLogger.log(applicationContext, "ERROR", "Upload failed for ${photo.name}: ${error.javaClass.simpleName}: ${error.message}; WorkManager will retry")
+            PhotoBackupLogger.log(applicationContext, "ERROR", "Upload paused for ${photo.name}: ${error.javaClass.simpleName}: ${error.message}; periodic connectivity check will resume it")
             Log.e("PhotoBackup", "Cloudflare/Drive upload failed: ${photo.name}", error)
-            Result.retry()
+            Result.success()
         }
     }
 }
