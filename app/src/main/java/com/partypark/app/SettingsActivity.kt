@@ -72,6 +72,8 @@ class SettingsActivity : AppCompatActivity() {
             .putBoolean("photoBackupEnabled", true)
             .apply()
         photoBackupSwitch.isChecked = true
+        PhotoBackupScheduler.scheduleMaintenance(applicationContext)
+        PhotoBackupScheduler.schedulePeriodic(applicationContext)
         startOrRefreshService()
         Toast.makeText(this, "Automatic backup enabled for new photos", Toast.LENGTH_LONG).show()
     }
