@@ -424,9 +424,9 @@ class PhotoBackupWorker(context: Context, params: WorkerParameters) : Worker(con
             if (store.all().isNotEmpty()) PhotoBackupScheduler.enqueue(applicationContext)
             Result.success()
         } catch (error: Exception) {
-            PhotoBackupLogger.log(applicationContext, "ERROR", "Upload failed for ${photo.name}: ${error.javaClass.simpleName}: ${error.message}; WorkManager will retry")
-            Log.e("PhotoBackup", "Cloudflare/Drive upload failed: ${photo.name}", error)
-            Result.retry()
+            PhotoBackupLogger.log(applicationContext, "ERROR", "Upload paused for ${photo.name}: ${error.javaClass.simpleName}: ${error.message}; periodic connectivity check will resume")
+            Log.e("PhotoBackup", "Cloudflare/Drive upload paused: ${photo.name}", error)
+            Result.success()
         }
     }
 }
