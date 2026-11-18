@@ -140,7 +140,7 @@ internal object PhotoBackupApi {
             }
         }
         val id = driveFileId ?: throw IllegalStateException("Drive did not confirm the uploaded file")
-        jsonRequest(
+        return jsonRequest(
             "/v1/photos/upload-sessions/$sessionId/complete",
             "POST",
             deviceToken,
