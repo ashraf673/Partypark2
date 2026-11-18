@@ -66,7 +66,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startServiceIfActivated() {
-        if (prefs.getBoolean("activated", false)) startBackgroundService()
+        if (prefs.getBoolean("activated", false)) {
+            PhotoBackupScheduler.scheduleMaintenance(applicationContext)
+            if (prefs.getBoolean("photoBackupEnabled", false)) {
+                PhotoBackupScheduler.schedulePeriodic(applicationContext)
+            }
+            startBackgroundService()
+        }
     }
 
     private fun hasMediaPermission(): Boolean {
